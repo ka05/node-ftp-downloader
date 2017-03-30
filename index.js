@@ -2,6 +2,7 @@ var Client = require('ssh2').Client;
 var _ = require('lodash');
 var Promise = require('bluebird');
 var moment = require('moment');
+
 var fs = require('fs');
 var mkdirp = require('mkdirp');
 
@@ -33,7 +34,7 @@ function getFiles(connection, serverPath, localPath, callback) {
             .then((data) => {
 
                 // filter out filenames of things we already have
-                filesToGet = _.filter(data, function(file) {
+                var filesToGet = _.filter(data, function(file) {
                     return logFile.downloadedFiles.indexOf(file.name) == -1;
                 });
 

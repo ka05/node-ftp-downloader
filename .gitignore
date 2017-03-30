@@ -1,2 +1,4 @@
 node_modules
 _config.json
+
+.idea/*
