@@ -1,0 +1,22 @@
+{
+  "name": "node-ftp-seedbox",
+  "version": "1.0.0",
+  "description": "Tool to fetch files from a seedbox and keep log of files fetched",
+  "main": "index.js",
+  "scripts": {
+    "test": "test"
+  },
+  "author": "Clay Herendeen",
+  "license": "ISC",
+  "dependencies": {
+    "bluebird": "^3.5.0",
+    "lodash": "^4.17.4",
+    "mkdirp": "^0.5.1",
+    "moment": "^2.18.1",
+    "ssh2": "^0.5.4",
+    "ssh2-sftp-client": "^1.0.5",
+    "ssh2-utils": "^1.0.28",
+    "unrar": "^0.1.7",
+    "unzip": "^0.1.11"
+  }
+}
