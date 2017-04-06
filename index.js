@@ -5,6 +5,7 @@ var moment = require('moment');
 
 var fs = require('fs');
 var mkdirp = require('mkdirp');
+var ProgressBar = require('progress');
 
 var SSH2Utils = require('ssh2-utils');
 var ssh = new SSH2Utils();
@@ -12,13 +13,26 @@ var ssh = new SSH2Utils();
 let SftpClient = require('ssh2-sftp-client');
 let sftp = new SftpClient();
 
-var connectionOptions = require('_config.json');
+var connectionOptions = require('./_config.json');
 
-var MAX_SIMULTANEOUS_FILE_DOWNLOADS = 3;
+var MAX_SIMULTANEOUS_FILE_DOWNLOADS = 5;
+var NUM_SECS = 5;
+
 var downloadDir = '/home22/ka05/completed_downloads/queued_files'; // '/home22/ka05/completed_downloads/';
-var localDirectory = '/Users/envative/Downloads/test';
+// var localDirectory = '/Users/envative/Downloads/test';
+var localDirectory = '/Volumes/Seagate4TB/Downloads';
 var logFilePath = localDirectory + '/fileDownloadLog.json';
 var logFile = require(logFilePath);
+
+// example _.config.json
+/*
+ {
+ "host": "192.168.1.1",
+ "port": 22,
+ "username": "your_username",
+ "password": "your_password"
+ }
+ */
 
 var connection = sftp.connect(connectionOptions);
 
@@ -33,9 +47,14 @@ function getFiles(connection, serverPath, localPath, callback) {
       })
       .then((data) => {
 
+        // get list of downloaded server filenames
+        var downloadedFiles = _.map(logFile.downloadedFiles, function(lf){
+          return lf.serverFilename;
+        });
+
         // filter out filenames of things we already have
         var filesToGet = _.filter(data, function (file) {
-          return logFile.downloadedFiles.indexOf(file.name) == -1;
+          return downloadedFiles.indexOf(serverPath + "/" +file.name) == -1;
         });
 
         // for each file we need to get -> drill down and get everything
@@ -48,21 +67,68 @@ function getFiles(connection, serverPath, localPath, callback) {
             // if file is not directory -> download it
             if (fileInfo.type != "d") {
               try {
-                console.log("Downloading file: [" + serverFilename + " -> " + localFilename + " ]");
+                console.log("\nDownload Started: " +
+                  "\n\tServer Filename: " + serverFilename +
+                  "\n\tLocal Filename: " + localFilename);
+
+                // start timer to show progress:
+                // show progress bar : start at 0
+
+                var progressUpdateInterval;
+                var progressString = '  downloading [:bar] :rate/bps :percent :etas';
+                var bar = new ProgressBar(progressString, {
+                  complete: '=',
+                  incomplete: ' ',
+                  width: 50,
+                  total: fileInfo.size,
+                  callback:function(){
+                    var stats = fs.statSync(localFilename);
+                    var fileSizeInBytes = stats.size;
+                    console.log("Downloaded: [local:"+ fileSizeInBytes + ", server: "+ fileInfo.size +"]");
+                    clearInterval(progressUpdateInterval);
+                  }
+                });
+
+                setTimeout(function(){
+
+                  var previousFileSize;
+                  progressUpdateInterval = setInterval(function(){
+
+                    // check local file byte size and divide by total byte size for percentage
+                    var stats = fs.statSync(localFilename);
+                    var fileSizeInBytes = stats.size;
+                    var sizeStep = fileSizeInBytes;
+
+                    if(previousFileSize){
+                      sizeStep = fileSizeInBytes - previousFileSize;
+                    }
+                    previousFileSize = fileSizeInBytes;
+
+                    var percentage =  fileSizeInBytes / fileInfo.size;
+                    percentage = parseFloat(Math.round(percentage * 100)).toFixed(2);
+                    // console.log("Filename: "+ localFilename +" percentage: " + percentage);
+                    bar.tick(sizeStep);
+
+                  }, 250); // every half sec
+
+                }, NUM_SECS * 1000);
+
                 ssh.getFile(connectionOptions,
                   serverFilename, localFilename,
                   (err, server, connection) => {
                     if (err) console.log("getFile Error: " + err);
                     else {
-                      console.log("File Download Success: " +
-                        "[" + serverFilename + " -> " + localFilename + " ]");
+                      // console.log("\nFile Download Success: " +
+                      //   "\n\tServer Filename: " + serverFilename +
+                      //   "\n\tLocal Filename: " + localFilename);
 
                       // add to list of files that already downloaded
-                      logFile.downloadedFiles.push(serverFilename);
-
+                      logFile.downloadedFiles.push({serverFilename:serverFilename, localFilename:localFilename, size:fileInfo.size});
+                      updateLogFile();
                     }
                     resolveMap();
                   });
+
               } catch (e) {
                 console.log("Download Failed with exception: " + e);
               }
@@ -137,6 +203,13 @@ function renameFile(filename) {
   });
 }
 
+function updateLogFile(){
+  fs.writeFile(logFilePath, JSON.stringify({
+    downloadedFiles: logFile.downloadedFiles,
+    lastFetched: moment().format()
+  }, null, 4));
+}
+
 // Main Download processor method
 function startDownload(options) {
   var serverDir = options.serverDir;
@@ -147,52 +220,69 @@ function startDownload(options) {
   getFiles(connection, serverDir, localDir) // start getting files. ( NOTE: this will call recursively. be careful )
     .then(function () {
       // When done getting all files -> write them to log filename
-      fs.writeFile(logFilePath, JSON.stringify({
-        downloadedFiles: logFile.downloadedFiles,
-        lastFetched: moment().format()
-      }, null, 4));
+
+      // save filesize, local and server paths
+      updateLogFile();
+
       console.log("File Download Complete!");
 
       // if you want to extract the files after done downloading
       if (extractPostDownload) {
-        console.log("File Extraction Started");
+
+        // get list of downloaded local filenames
+        var localFiles = _.map(logFile.downloadedFiles, function(lf){
+          return lf.localFilename;
+        });
 
         // filter out list of "extractable" files
-        var extractableFiles = _.filter(logFile.downloadedFiles, function (filename) {
+        var extractableFiles = _.filter(localFiles, function (filename) {
           return filename.indexOf(".rar") != -1;
         });
 
-        // start extracting files
-        var extractionMap = Promise.map(extractableFiles, function (file) {
-          return extractFile(file);
-        });
+        console.log("Extraction: ExtractableFiles Size: " + (extractableFiles) ? extractableFiles.length : 0);
 
-        // extraction is complete
-        extractionMap.then(function () {
-          console.log("File Extraction Complete");
+        // if we have files to extract
+        if(extractableFiles && extractableFiles.length > 0){
+          console.log("Extraction: Started");
 
-          if (renameShowsPostDownload) {
-            console.log("File Renaming Started");
+          // start extracting files
+          var extractionMap = Promise.map(extractableFiles, function (file) {
+            return extractFile(file);
+          });
 
-            fs.readdir(localDirectory +"/extracted", (err, files) => {
-              var extractedFiles = [];
-              files.forEach(file => {
-                console.log(file);
-                extractedFiles.push(file);
+          // extraction is complete
+          extractionMap.then(function () {
+            console.log("Extraction: Complete");
+
+            if (renameShowsPostDownload) {
+
+              fs.readdir(localDirectory +"/extracted", (err, files) => {
+                var extractedFiles = [];
+                files.forEach(file => {
+                  console.log(file);
+                  extractedFiles.push(file);
+                });
+
+                if(extractedFiles.length > 0){
+                  console.log("Renaming: Started");
+
+                  // start renaming files
+                  var renamingMap = Promise.map(extractableFiles, function (file) {
+                    return renameFile(file);
+                  });
+
+                  renamingMap.then(function () {
+                    console.log("Renaming: Complete");
+                  });
+                }
+
               });
 
-              // start extracting files
-              var renamingMap = Promise.map(extractableFiles, function (file) {
-                return renameFile(file);
-              });
+            }
+          });
 
-              renamingMap.then(function () {
-                console.log("File Renaming Complete");
-              });
-            });
+        }
 
-          }
-        });
       }
     });
 }
