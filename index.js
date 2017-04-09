@@ -4,6 +4,8 @@ var Promise = require('bluebird');
 var moment = require('moment');
 
 var fs = require('fs');
+var read = require('fs-readdir-recursive');
+
 var mkdirp = require('mkdirp');
 var ProgressBar = require('progress');
 
@@ -17,6 +19,8 @@ var connectionOptions = require('./_config.json');
 
 var MAX_SIMULTANEOUS_FILE_DOWNLOADS = 5;
 var NUM_SECS = 5;
+
+var log = require('./logUtil');
 
 var downloadDir = '/home22/ka05/completed_downloads/queued_files'; // '/home22/ka05/completed_downloads/';
 // var localDirectory = '/Users/envative/Downloads/test';
@@ -67,7 +71,7 @@ function getFiles(connection, serverPath, localPath, callback) {
             // if file is not directory -> download it
             if (fileInfo.type != "d") {
               try {
-                console.log("\nDownload Started: " +
+                log.infoLog("\nDownload Started: " +
                   "\n\tServer Filename: " + serverFilename +
                   "\n\tLocal Filename: " + localFilename);
 
@@ -84,7 +88,7 @@ function getFiles(connection, serverPath, localPath, callback) {
                   callback:function(){
                     var stats = fs.statSync(localFilename);
                     var fileSizeInBytes = stats.size;
-                    console.log("Downloaded: [local:"+ fileSizeInBytes + ", server: "+ fileInfo.size +"]");
+                    log.infoLog("Downloaded: [local:"+ fileSizeInBytes + ", server: "+ fileInfo.size +"]");
                     clearInterval(progressUpdateInterval);
                   }
                 });
@@ -116,7 +120,7 @@ function getFiles(connection, serverPath, localPath, callback) {
                 ssh.getFile(connectionOptions,
                   serverFilename, localFilename,
                   (err, server, connection) => {
-                    if (err) console.log("getFile Error: " + err);
+                    if (err) log.errorLog("getFile Error: " + err);
                     else {
                       // console.log("\nFile Download Success: " +
                       //   "\n\tServer Filename: " + serverFilename +
@@ -130,7 +134,7 @@ function getFiles(connection, serverPath, localPath, callback) {
                   });
 
               } catch (e) {
-                console.log("Download Failed with exception: " + e);
+                log.errorLog("Download Failed with exception: " + e);
               }
 
             } else {
@@ -139,10 +143,10 @@ function getFiles(connection, serverPath, localPath, callback) {
                 function (err) {
 
                   if (err) {
-                    console.log("mkdir Error: " + err);
+                    log.errorLog("mkdir Error: " + err);
                     resolveMap();
                   } else {
-                    console.log("Downloading files for: [" + serverFilename + " -> " + localFilename + " ]");
+                    log.successLog("Downloading files for: [" + serverFilename + " -> " + localFilename + " ]");
                     // if its a directory -> call recursively
                     getFiles(connection, serverFilename, localFilename)
                       .then(resolveMap, rejectMap);
@@ -162,7 +166,7 @@ function getFiles(connection, serverPath, localPath, callback) {
 
       })
       .catch((err) => {
-        console.log(err, 'catch error');
+        log.errorLog(err, 'catch error');
       });
   });
 }
@@ -174,13 +178,18 @@ function extractFile(filename) {
     // var filename = '/Users/envative/Downloads/test/The.Flash.2014.S03E15.720p.HDTV.X264-DIMENSION/the.flash.315.720p-dimension.rar';
     var exec = require('child_process').exec;
 
-    exec("unrar e " + filename + " extracted", function (error) {
-      if (error) {
-        // error code here
-        console.log(error);
-      } else {
+    log.infoLog("Extraction: Executing Command: \n\t" +
+      "unrar e " + filename + " " + localDirectory + "/extracted");
+
+    exec("unrar e " + filename + " " + localDirectory + "/extracted", function (error) {
+      if (error){
+        log.errorLog(error);
+        resolve(error);
+      }
+      else {
         // success code here
-        console.log("Successfully unrar-ed file: " + filename);
+        log.successLog("\tSuccessfully unrar-ed file: " + filename);
+        resolve();
       }
     });
   });
@@ -194,10 +203,12 @@ function renameFile(filename) {
     exec("tvnamer -b " + filename, function (error) {
       if (error) {
         // error code here
-        console.log(error);
+        log.errorLog(error);
+        resolve(error);
       } else {
         // success code here
-        console.log("Successfully unrar-ed file: " + filename);
+        log.successLog("Successfully unrar-ed file: " + filename);
+        resolve();
       }
     });
   });
@@ -223,8 +234,7 @@ function startDownload(options) {
 
       // save filesize, local and server paths
       updateLogFile();
-
-      console.log("File Download Complete!");
+      log.successLog("File Download Complete!");
 
       // if you want to extract the files after done downloading
       if (extractPostDownload) {
@@ -239,32 +249,37 @@ function startDownload(options) {
           return filename.indexOf(".rar") != -1;
         });
 
-        console.log("Extraction: ExtractableFiles Size: " + (extractableFiles) ? extractableFiles.length : 0);
+        log.infoLog("Extraction: ExtractableFiles Size: " + (extractableFiles) ? extractableFiles.length : 0);
 
         // if we have files to extract
         if(extractableFiles && extractableFiles.length > 0){
-          console.log("Extraction: Started");
+          log.infoLog("Extraction: Started");
 
           // start extracting files
-          var extractionMap = Promise.map(extractableFiles, function (file) {
+          var extractionMap = new Promise.map(extractableFiles, function (file) {
+            //TODO: Throttle extraction to "x" number at a time ( NOTE: not working right now )
             return extractFile(file);
           });
 
           // extraction is complete
-          extractionMap.then(function () {
-            console.log("Extraction: Complete");
+          extractionMap.then(function (errors) {
+
+            var hasErrors = (errors && errors.length > 0);
+
+            log.successLog("Extraction: Complete" + (hasErrors) ?
+              " With "+errors.length+" Errors" : "");
 
             if (renameShowsPostDownload) {
 
               fs.readdir(localDirectory +"/extracted", (err, files) => {
                 var extractedFiles = [];
                 files.forEach(file => {
-                  console.log(file);
+                  log.infoLog(file);
                   extractedFiles.push(file);
                 });
 
                 if(extractedFiles.length > 0){
-                  console.log("Renaming: Started");
+                  log.infoLog("Renaming: Started");
 
                   // start renaming files
                   var renamingMap = Promise.map(extractableFiles, function (file) {
@@ -272,7 +287,7 @@ function startDownload(options) {
                   });
 
                   renamingMap.then(function () {
-                    console.log("Renaming: Complete");
+                    log.successLog("Renaming: Complete");
                   });
                 }
 
@@ -287,10 +302,95 @@ function startDownload(options) {
     });
 }
 
+function extractAndRename(directoryPath) {
+
+  var finishExtraction = function () {
+
+    // filter out list of "extractable" files
+    var extractableFiles = _.filter(localFiles, function (filename) {
+      return filename.indexOf(".rar") != -1;
+    });
+
+    log.infoLog("\nExtraction: ExtractableFiles Size: " + ((extractableFiles) ? extractableFiles.length : 0));
+
+    // if we have files to extract
+    if(extractableFiles && extractableFiles.length > 0){
+      log.infoLog("Extraction: Started");
+
+      // start extracting files
+      var extractionMap = Promise.map(extractableFiles, function (file) {
+        return extractFile(file);
+      });
+
+      // extraction is complete
+      extractionMap.then(function () {
+        log.successLog("Extraction: Complete");
+
+        fs.readdir(localDirectory +"/extracted", (err, files) => {
+          var extractedFiles = [];
+          files.forEach(file => {
+            log.infoLog("file:: " + JSON.stringify(file));
+            extractedFiles.push(file);
+          });
+
+          if(extractedFiles.length > 0){
+            log.infoLog("Renaming: Started");
+
+            // start renaming files
+            var renamingMap = Promise.map(extractableFiles, function (file) {
+              return renameFile(file);
+            });
+
+            renamingMap.then(function () {
+              log.successLog("Renaming: Complete");
+              process.exit();
+            });
+          }else{
+            log.infoLog("Renaming: No Extracted Files to Rename");
+            process.exit();
+          }
+        });
+
+      });
+    }else{
+      log.infoLog("finishExtraction: No Files to Extract");
+      process.exit();
+    }
+  };
+
+  // get list of downloaded local filenames
+  var localFiles = _.map(logFile.downloadedFiles, function(lf){
+    return lf.localFilename;
+  });
+
+  if(directoryPath){
+    var extFiles = read(directoryPath);
+
+    extFiles = _.filter(extFiles, function (file) {
+      return file.indexOf(".rar") != -1;
+    });
+
+    localFiles = _.map(extFiles, function (file) {
+      return directoryPath + "/" + file;
+    });
+
+    log.infoLog("Extraction: Files to Extract: \n\n\t" + extFiles.join("\n\t"));
+    finishExtraction();
+  }else{
+    finishExtraction();
+  }
+
+}
+
 // call with defaults
-startDownload({
-  serverDir: downloadDir,
-  localDir: localDirectory,
-  extractPostDownload: true,
-  renameShowsPostDownload: true
-});
+// startDownload({
+//   serverDir: downloadDir,
+//   localDir: localDirectory,
+//   extractPostDownload: true,
+//   renameShowsPostDownload: true
+// });
+
+
+// this will simply extract and rename files from the desired directory:
+// WARNING! this will search recursively through the directory you pass in ( use with caution )
+extractAndRename(localDirectory);
