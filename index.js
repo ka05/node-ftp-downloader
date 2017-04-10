@@ -5,6 +5,7 @@ var moment = require('moment');
 
 var fs = require('fs');
 var read = require('fs-readdir-recursive');
+var exec = require('child_process').exec;
 
 var mkdirp = require('mkdirp');
 var ProgressBar = require('progress');
@@ -175,8 +176,6 @@ function getFiles(connection, serverPath, localPath, callback) {
 // handle extracting all downloaded files
 function extractFile(filename) {
   return new Promise(function (resolve, reject) {
-    // var filename = '/Users/envative/Downloads/test/The.Flash.2014.S03E15.720p.HDTV.X264-DIMENSION/the.flash.315.720p-dimension.rar';
-    var exec = require('child_process').exec;
 
     log.infoLog("Extraction: Executing Command: \n\t" +
       "unrar e " + filename + " " + localDirectory + "/extracted");
@@ -197,17 +196,18 @@ function extractFile(filename) {
 
 function renameFile(filename) {
   return new Promise(function (resolve, reject) {
-    // var filename = '/Users/envative/Downloads/test/The.Flash.2014.S03E15.720p.HDTV.X264-DIMENSION/the.flash.315.720p-dimension.rar';
-    var exec = require('child_process').exec;
 
-    exec("tvnamer -b " + filename, function (error) {
+    log.infoLog("Renaming: Executing Command: \n\t" +
+      "tvnamer -b " + filename);
+
+    exec("tvnamer -b -c tvnamerconfig.json " + filename, function (error) {
       if (error) {
         // error code here
         log.errorLog(error);
         resolve(error);
       } else {
         // success code here
-        log.successLog("Successfully unrar-ed file: " + filename);
+        log.successLog("Successfully renamed file: " + filename);
         resolve();
       }
     });
@@ -238,71 +238,13 @@ function startDownload(options) {
 
       // if you want to extract the files after done downloading
       if (extractPostDownload) {
-
-        // get list of downloaded local filenames
-        var localFiles = _.map(logFile.downloadedFiles, function(lf){
-          return lf.localFilename;
-        });
-
-        // filter out list of "extractable" files
-        var extractableFiles = _.filter(localFiles, function (filename) {
-          return filename.indexOf(".rar") != -1;
-        });
-
-        log.infoLog("Extraction: ExtractableFiles Size: " + (extractableFiles) ? extractableFiles.length : 0);
-
-        // if we have files to extract
-        if(extractableFiles && extractableFiles.length > 0){
-          log.infoLog("Extraction: Started");
-
-          // start extracting files
-          var extractionMap = new Promise.map(extractableFiles, function (file) {
-            //TODO: Throttle extraction to "x" number at a time ( NOTE: not working right now )
-            return extractFile(file);
-          });
-
-          // extraction is complete
-          extractionMap.then(function (errors) {
-
-            var hasErrors = (errors && errors.length > 0);
-
-            log.successLog("Extraction: Complete" + (hasErrors) ?
-              " With "+errors.length+" Errors" : "");
-
-            if (renameShowsPostDownload) {
-
-              fs.readdir(localDirectory +"/extracted", (err, files) => {
-                var extractedFiles = [];
-                files.forEach(file => {
-                  log.infoLog(file);
-                  extractedFiles.push(file);
-                });
-
-                if(extractedFiles.length > 0){
-                  log.infoLog("Renaming: Started");
-
-                  // start renaming files
-                  var renamingMap = Promise.map(extractableFiles, function (file) {
-                    return renameFile(file);
-                  });
-
-                  renamingMap.then(function () {
-                    log.successLog("Renaming: Complete");
-                  });
-                }
-
-              });
-
-            }
-          });
-
-        }
-
+        extractAndRename(localDir, renameShowsPostDownload);
       }
     });
 }
 
-function extractAndRename(directoryPath) {
+
+function extractAndRename(directoryPath, renameShowsPostDownload) {
 
   var finishExtraction = function () {
 
@@ -318,40 +260,16 @@ function extractAndRename(directoryPath) {
       log.infoLog("Extraction: Started");
 
       // start extracting files
-      var extractionMap = Promise.map(extractableFiles, function (file) {
-        return extractFile(file);
-      });
+      Promise
+        .all(extractableFiles.map(extractFile))
+        .then(function(res) {
+          log.successLog("Extraction: Complete");
 
-      // extraction is complete
-      extractionMap.then(function () {
-        log.successLog("Extraction: Complete");
-
-        fs.readdir(localDirectory +"/extracted", (err, files) => {
-          var extractedFiles = [];
-          files.forEach(file => {
-            log.infoLog("file:: " + JSON.stringify(file));
-            extractedFiles.push(file);
-          });
-
-          if(extractedFiles.length > 0){
-            log.infoLog("Renaming: Started");
-
-            // start renaming files
-            var renamingMap = Promise.map(extractableFiles, function (file) {
-              return renameFile(file);
-            });
-
-            renamingMap.then(function () {
-              log.successLog("Renaming: Complete");
-              process.exit();
-            });
-          }else{
-            log.infoLog("Renaming: No Extracted Files to Rename");
-            process.exit();
+          if(renameShowsPostDownload){
+            bulkRename(localDirectory +"/extracted");
           }
         });
 
-      });
     }else{
       log.infoLog("finishExtraction: No Files to Extract");
       process.exit();
@@ -382,6 +300,32 @@ function extractAndRename(directoryPath) {
 
 }
 
+function bulkRename(directoryPath){
+  fs.readdir(directoryPath, (err, files) => {
+    var extractedFiles = [];
+    files.forEach(file => {
+      extractedFiles.push(file);
+    });
+
+    if(extractedFiles.length > 0){
+      log.infoLog("Renaming: Started");
+
+      // start renaming files
+      var renamingMap = Promise.map(extractedFiles, function (file) {
+        return renameFile(directoryPath + "/" + file);
+      });
+
+      renamingMap.then(function () {
+        log.successLog("Renaming: Complete");
+        process.exit();
+      });
+    }else{
+      log.infoLog("Renaming: No Extracted Files to Rename");
+      process.exit();
+    }
+  });
+}
+
 // call with defaults
 // startDownload({
 //   serverDir: downloadDir,
@@ -393,4 +337,7 @@ function extractAndRename(directoryPath) {
 
 // this will simply extract and rename files from the desired directory:
 // WARNING! this will search recursively through the directory you pass in ( use with caution )
-extractAndRename(localDirectory);
+// extractAndRename(localDirectory);
+
+
+bulkRename(localDirectory +"/extracted");
