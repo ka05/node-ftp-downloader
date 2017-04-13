@@ -24,8 +24,8 @@ var NUM_SECS = 5;
 var log = require('./logUtil');
 
 var downloadDir = '/home22/ka05/completed_downloads/queued_files'; // '/home22/ka05/completed_downloads/';
-// var localDirectory = '/Users/envative/Downloads/test';
-var localDirectory = '/Volumes/Seagate4TB/Downloads';
+var localDirectory = '/Users/envative/Downloads/test';
+// var localDirectory = '/Volumes/Seagate4TB/Downloads';
 var logFilePath = localDirectory + '/fileDownloadLog.json';
 var logFile = require(logFilePath);
 
@@ -38,8 +38,10 @@ var logFile = require(logFilePath);
  "password": "your_password"
  }
  */
-
-var connection = sftp.connect(connectionOptions);
+function getConnection(){
+  return sftp.connect(connectionOptions);
+}
+var connection = getConnection();
 
 //TODO: look into using this library for download progress :https://github.com/visionmedia/node-progress
 
@@ -200,7 +202,7 @@ function renameFile(filename) {
     log.infoLog("Renaming: Executing Command: \n\t" +
       "tvnamer -b " + filename);
 
-    exec("tvnamer -b -c tvnamerconfig.json " + filename, function (error) {
+    exec("tvnamer -b --config=tvnamerconfig.json " + filename, function (error) {
       if (error) {
         // error code here
         log.errorLog(error);
@@ -304,7 +306,9 @@ function bulkRename(directoryPath){
   fs.readdir(directoryPath, (err, files) => {
     var extractedFiles = [];
     files.forEach(file => {
-      extractedFiles.push(file);
+      if(file != ".DS_Store"){
+        extractedFiles.push(file);
+      }
     });
 
     if(extractedFiles.length > 0){
@@ -327,12 +331,12 @@ function bulkRename(directoryPath){
 }
 
 // call with defaults
-// startDownload({
-//   serverDir: downloadDir,
-//   localDir: localDirectory,
-//   extractPostDownload: true,
-//   renameShowsPostDownload: true
-// });
+startDownload({
+  serverDir: downloadDir,
+  localDir: localDirectory,
+  extractPostDownload: true,
+  renameShowsPostDownload: true
+});
 
 
 // this will simply extract and rename files from the desired directory:
@@ -340,4 +344,4 @@ function bulkRename(directoryPath){
 // extractAndRename(localDirectory);
 
 
-bulkRename(localDirectory +"/extracted");
+// bulkRename(localDirectory +"/extracted");
