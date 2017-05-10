@@ -24,8 +24,8 @@ var NUM_SECS = 5;
 var log = require('./logUtil');
 
 var downloadDir = '/home22/ka05/completed_downloads/queued_files'; // '/home22/ka05/completed_downloads/';
-var localDirectory = '/Users/envative/Downloads/test';
-// var localDirectory = '/Volumes/Seagate4TB/Downloads';
+// var localDirectory = '/Users/envative/Downloads/test';
+var localDirectory = '/Volumes/SeagatePort4TB/Downloads';
 var logFilePath = localDirectory + '/fileDownloadLog.json';
 var logFile = require(logFilePath);
 
@@ -331,17 +331,16 @@ function bulkRename(directoryPath){
 }
 
 // call with defaults
-startDownload({
-  serverDir: downloadDir,
-  localDir: localDirectory,
-  extractPostDownload: true,
-  renameShowsPostDownload: true
-});
+// startDownload({
+//   serverDir: downloadDir,
+//   localDir: localDirectory,
+//   extractPostDownload: true,
+//   renameShowsPostDownload: true
+// });
 
 
 // this will simply extract and rename files from the desired directory:
 // WARNING! this will search recursively through the directory you pass in ( use with caution )
-// extractAndRename(localDirectory);
-
+extractAndRename(localDirectory);
 
 // bulkRename(localDirectory +"/extracted");
