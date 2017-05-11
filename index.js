@@ -23,6 +23,15 @@ var NUM_SECS = 5;
 
 var log = require('./logUtil');
 
+var showsToDownload = [
+'24.Legacy',
+'Arrow',
+'DCs.Legends.of.Tomorrow',
+'Graveyard.Carz',
+'Street.Outlaws',
+'The.Flash'
+];
+
 var downloadDir = '/home22/ka05/completed_downloads/queued_files'; // '/home22/ka05/completed_downloads/';
 // var localDirectory = '/Users/envative/Downloads/test';
 var localDirectory = '/Volumes/SeagatePort4TB/Downloads';
