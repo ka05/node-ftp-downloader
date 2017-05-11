@@ -341,6 +341,6 @@ function bulkRename(directoryPath){
 
 // this will simply extract and rename files from the desired directory:
 // WARNING! this will search recursively through the directory you pass in ( use with caution )
-extractAndRename(localDirectory);
+// extractAndRename(localDirectory);
 
-// bulkRename(localDirectory +"/extracted");
+bulkRename(localDirectory +"/extracted");
